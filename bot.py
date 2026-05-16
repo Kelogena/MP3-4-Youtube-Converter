@@ -22,7 +22,7 @@ import subprocess
 # =========================
 # CONFIG
 # =========================
-TOKEN = "8732078375:AAHqo9b67tUT_d8KwTTrsii3a7P8lVFkuPM"
+TOKEN = os.getenv("BOT_TOKEN")
 
 DOWNLOAD_FOLDER = "downloads"
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
