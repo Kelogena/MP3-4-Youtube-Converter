@@ -18,21 +18,24 @@ import yt_dlp
 import os
 import logging
 import subprocess
+import shutil
+import uuid
 
 # =========================
 # CONFIG
 # =========================
-TOKEN = os.getenv("BOT_TOKEN")
+TOKEN = "YOUR_BOT_TOKEN"
 
 DOWNLOAD_FOLDER = "downloads"
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
-# =========================
-# FFMPEG
-# =========================
-FFMPEG_PATH = r"C:\ffmpeg\ffmpeg-8.1.1-essentials_build\bin"
+# Linux VPS:
+FFMPEG_PATH = "/usr/bin"
 
-MAX_VIDEO_SIZE = 49  # Telegram limit MB
+# Windows example:
+# FFMPEG_PATH = r"C:\ffmpeg\bin"
+
+MAX_VIDEO_SIZE = 49  # MB
 
 logging.basicConfig(level=logging.INFO)
 
@@ -47,6 +50,51 @@ request = telegram.request.HTTPXRequest(
 )
 
 # =========================
+# COMMON YTDLP OPTIONS
+# =========================
+COMMON_YTDLP_OPTS = {
+
+    "quiet": True,
+    "no_warnings": True,
+
+    # cookies
+    "cookiefile": "cookies.txt",
+
+    # ffmpeg
+    "ffmpeg_location": FFMPEG_PATH,
+
+    # avoid youtube detection
+    "extractor_args": {
+        "youtube": {
+            "player_client": [
+                "android",
+                "ios",
+                "web"
+            ]
+        }
+    },
+
+    # browser headers
+    "http_headers": {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/122.0 Safari/537.36"
+        )
+    },
+
+    # retries
+    "retries": 10,
+    "fragment_retries": 10,
+
+    # bypass
+    "geo_bypass": True,
+
+    # network
+    "socket_timeout": 60,
+}
+
+# =========================
 # START
 # =========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -54,6 +102,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Надішли YouTube або TikTok URL 🎵📹"
     )
+
+# =========================
+# UNIQUE FILENAME
+# =========================
+def unique_name():
+
+    return str(uuid.uuid4())
 
 # =========================
 # FIND LAST FILE
@@ -73,6 +128,20 @@ def find_downloaded_file():
     return latest
 
 # =========================
+# CLEANUP
+# =========================
+def cleanup_downloads():
+
+    try:
+
+        shutil.rmtree(DOWNLOAD_FOLDER)
+
+    except:
+        pass
+
+    os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
+
+# =========================
 # COMPRESS VIDEO
 # =========================
 def compress_video(input_path):
@@ -84,25 +153,35 @@ def compress_video(input_path):
 
     ffmpeg = os.path.join(
         FFMPEG_PATH,
-        "ffmpeg.exe"
+        "ffmpeg"
     )
+
+    # Windows fix
+    if os.name == "nt":
+        ffmpeg += ".exe"
 
     cmd = [
         ffmpeg,
         "-y",
         "-i", input_path,
 
-        # scale down
-        "-vf", "scale='min(1280,iw)':-2",
+        "-vf",
+        "scale='min(1280,iw)':-2",
 
-        # video codec
-        "-c:v", "libx264",
-        "-preset", "veryfast",
-        "-crf", "32",
+        "-c:v",
+        "libx264",
 
-        # audio codec
-        "-c:a", "aac",
-        "-b:a", "128k",
+        "-preset",
+        "veryfast",
+
+        "-crf",
+        "32",
+
+        "-c:a",
+        "aac",
+
+        "-b:a",
+        "128k",
 
         output_path
     ]
@@ -130,12 +209,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
 
-        ydl_opts = {
-            "quiet": True,
-            "no_warnings": True,
-            "cookiefile": "cookies.txt",
-            "ffmpeg_location": FFMPEG_PATH,
-        }
+        ydl_opts = COMMON_YTDLP_OPTS.copy()
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
 
@@ -167,7 +241,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             vcodec = f.get("vcodec")
 
-            # only video
             if not height:
                 continue
 
@@ -182,10 +255,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             size_mb = filesize / (1024 * 1024)
 
-            # reserve for audio merge
             size_mb += 2
 
-            # allow huge videos
             if size_mb > 2048:
                 continue
 
@@ -199,7 +270,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             added.add(key)
 
-            # warning
             if size_mb > MAX_VIDEO_SIZE:
 
                 text = (
@@ -222,7 +292,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ])
 
         # =========================
-        # AUDIO SIZE
+        # AUDIO BUTTON
         # =========================
         duration = info.get("duration", 0)
 
@@ -253,7 +323,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         logging.error(e)
 
-        await msg.edit_text(f"❌ {e}")
+        await msg.edit_text(
+            f"❌ {e}"
+        )
 
 # =========================
 # SEND VIDEO
@@ -313,33 +385,30 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
 
+        unique = unique_name()
+
         # =========================
         # AUDIO
         # =========================
         if data == "audio":
 
-            ydl_opts = {
+            ydl_opts = COMMON_YTDLP_OPTS.copy()
+
+            ydl_opts.update({
 
                 "format": "bestaudio/best",
 
                 "outtmpl": os.path.join(
                     DOWNLOAD_FOLDER,
-                    "%(title)s.%(ext)s"
+                    f"{unique}.%(ext)s"
                 ),
-
-                "quiet": True,
-                "no_warnings": True,
-
-                "cookiefile": "cookies.txt",
-
-                "ffmpeg_location": FFMPEG_PATH,
 
                 "postprocessors": [{
                     "key": "FFmpegExtractAudio",
                     "preferredcodec": "mp3",
                     "preferredquality": "192",
                 }]
-            }
+            })
 
         # =========================
         # VIDEO
@@ -353,7 +422,9 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"{format_id}"
             )
 
-            ydl_opts = {
+            ydl_opts = COMMON_YTDLP_OPTS.copy()
+
+            ydl_opts.update({
 
                 "format": format_string,
 
@@ -361,16 +432,9 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 "outtmpl": os.path.join(
                     DOWNLOAD_FOLDER,
-                    "%(title)s.%(ext)s"
+                    f"{unique}.%(ext)s"
                 ),
-
-                "quiet": True,
-                "no_warnings": True,
-
-                "cookiefile": "cookies.txt",
-
-                "ffmpeg_location": FFMPEG_PATH,
-            }
+            })
 
         # =========================
         # DOWNLOAD
@@ -420,7 +484,6 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 / (1024 * 1024)
             )
 
-            # still too big
             if size_mb > MAX_VIDEO_SIZE:
 
                 raise Exception(
@@ -473,23 +536,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     finally:
 
-        try:
-
-            files = os.listdir(
-                DOWNLOAD_FOLDER
-            )
-
-            for f in files:
-
-                os.remove(
-                    os.path.join(
-                        DOWNLOAD_FOLDER,
-                        f
-                    )
-                )
-
-        except:
-            pass
+        cleanup_downloads()
 
 # =========================
 # MAIN
